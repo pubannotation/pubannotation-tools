@@ -1,10 +1,8 @@
 #!/usr/bin/env ruby
-#encoding: UTF-8
-Encoding.default_external="UTF-8"
-Encoding.default_internal="UTF-8"
+module PubAnnotation; end unless defined? PubAnnotation
 
-module Annotation
-  def Annotation.loadFromBioNLPST (txt, a1, a2)
+class << PubAnnotation
+  def load_bionlp_st (txt, a1, a2)
     a1_anns = a1.split(/\n/).collect {|l| l.split(/\t/)[0..1]}
     a2_anns = a2.split(/\n/).collect {|l| l.split(/\t/)[0..1]}
 
@@ -25,20 +23,10 @@ module Annotation
 
       if id =~ /^T/
         c, b, e = ann.split(/ /)
-        if ((c == 'Protein') or (c == 'Entity')) 
+        if ((c == 'Protein') || (c == 'Entity')) 
           denotations << {:id=> id, :span => {:begin => b, :end => e}, :obj => c}
         end
         spans[id] = {:begin => b, :end => e};
-      end
-
-      if id =~ /^R/
-        t, s, o = ann.split(/ /)
-        s = s.split(/:/)[1]
-        o = o.split(/:/)[1]
-        t = 'coreferenceOf' if t == 'Coreference'
-        relations << {:id=> id, :pred => t, :subj => s, :obj => o}
-
-        rid = id[1..-1].to_i + 1
       end
 
     end
@@ -148,49 +136,68 @@ module Annotation
     {:text => txt, :denotations => denotations, :relations => relations, :modifications => modifications}
   end
 
+  def load_bionlp_st_coref (txt, a1, a2)
+    a1_anns = a1.split(/\n/).collect {|l| l.split(/\t/)[0..1]}
+    a2_anns = a2.split(/\n/).collect {|l| l.split(/\t/)[0..1]}
+
+    ## index spans
+    spans = {}
+
+    a1_anns.each do |id, ann|
+      c, b, e = ann.split(/ /)
+      spans[id] = {:begin => b, :end => e}
+    end
+
+    a2_anns.each do |id, ann|
+      if id =~ /^T/
+        c, b, e = ann.split(/ /)
+        spans[id] = {:begin => b, :end => e}
+      end
+    end
+
+    ## collect denotations and relations
+    denotations = []
+    relations = []
+
+    a2_anns.each do |id, ann|
+
+      if id =~ /^R/
+        t, s, o = ann.split(/ /)
+        s = s.split(/:/)[1]
+        o = o.split(/:/)[1]
+        if t == 'Coreference'
+          denotations << {:id=> s, :span => spans[s], :obj => "Anaphor"}
+          denotations << {:id=> o, :span => spans[o], :obj => "Antecedent"}
+          relations << {:id=> id, :pred => 'boundBy', :subj => s, :obj => o}
+        end
+      end
+
+    end
+    denotations.uniq!
+
+    {:text => txt, :denotations => denotations, :relations => relations}
+  end
+
 end
 
 
 if __FILE__ == $0
-  require 'uri'
-  require 'rest_client'
   require 'json'
 
-  hosturl = nil;
-  odir = nil;
-
-  ## config file processing
-  require 'parseconfig'
-  config   = ParseConfig.new('./bionlp-st-to-pubann.cfg')
-  hosturl  = config['hostURL']
-  username = config['username']
-  password = config['password']
-  annset   = config['annotationSet']
-
+  odir = 'out';
+  mode = nil;
 
   ## command line option processing
   require 'optparse'
   optparse = OptionParser.new do|opts|
     opts.banner = "Usage: bionlp-st-to-pubann-json.rb [options]"
 
-    opts.on('-l', '--location URL', 'specifies the URL of the host.') do |u|
-      hosturl = u
-    end
-
     opts.on('-o', '--output directory', 'specifies the output directory.') do |d|
       odir = d
     end
 
-    opts.on('-u', '--user name', 'specifies the user name.') do |n|
-      username = n
-    end
-
-    opts.on('-p', '--password', 'specifies the user password.') do |p|
-      password = p
-    end
-
-    opts.on('-s', '--annotation set', 'specifies the annotation set.') do |s|
-      annset = s
+    opts.on('-a', '--anaphora', 'tells it to convert anaphora annotation') do
+      mode = :anaphora
     end
 
     opts.on('-h', '--help', 'displays this screen') do
@@ -201,24 +208,23 @@ if __FILE__ == $0
 
   optparse.parse!
 
-  if (!odir && hosturl)
-    puts "host URL: #{hosturl}"
-    puts "annotation set: #{annset}"
-    pubann_resource = RestClient::Resource.new(hosturl, {:user => username, :password => password, :headers => {:content_type => :json, :accept => :json}})
-    # pubann_resource = RestClient::Resource.new(hosturl, :headers => {:content_type => :json, :accept => :json})
-  end
-
-  last_docid = ''
-  div_num = 0
   ARGV.each do |ff|
     ## filename checking : needs to be configured.
     fpath = ff.sub(/\.(txt|a1|a2)$/, '')
     fname = fpath.split(/\//).last
-    prefix, docid, divid, section = fname.split(/[-.]/)
-    next unless (((prefix == 'PMID') || (prefix == 'PMC')) && (docid =~ /^[0-9]+$/))
+    sourcedb, sourceid, divid, section = fname.split(/[-]/)
+    next unless (((sourcedb == 'PubMed') || (sourcedb == 'PMC')) && (sourceid =~ /^[0-9]+$/))
 
-    if (docid != last_docid) then div_num = 0 else div_num += 1 end
-    divid = "%02d" % div_num
+    if sourcedb == 'PMC'
+      if divid =~ /^[0-9]+$/
+        divid = divid.to_i
+      else
+        warn "> no divid: #{fname}"
+        next
+      end
+    else
+      divid = nil
+    end
 
     ## read files
     txt = File.read(fpath + '.txt')
@@ -226,33 +232,20 @@ if __FILE__ == $0
     a2  = File.read(fpath + '.a2')
 
     ## parsing
-    annotations = Annotation.loadFromBioNLPST(txt, a1, a2)
+    annotations = (mode == :anaphora) ? PubAnnotation::load_bionlp_st_coref(txt, a1, a2) : PubAnnotation::load_bionlp_st(txt, a1, a2)
+    annotations[:sourcedb] = sourcedb
+    annotations[:sourceid] = sourceid
+    annotations[:divid] = divid unless divid.nil?
 
     if (odir)
-
       unless File.exists?(odir)
         Dir.mkdir(odir)
-        puts "Output directory, #{odir}, created."
+        puts "> output directory, #{odir}, created."
       end
 
       outfilename = fname + '.json'
       puts outfilename
       File.open(odir + '/' + outfilename, 'w') {|f| f.write(annotations.to_json)}
-
-    elsif (hosturl)
-      post_path = case prefix
-                    when 'PMID' then "/projects/#{annset}/docs/sourcedb/pubmed/sourceid/#{docid}/annotations.json"
-                    when 'PMC'  then "/projects/#{annset}/docs/sourcedb/PMC/sourceid/#{docid}/divs/#{divid}/annotations.json"
-                  end
-      puts "post path: #{post_path}"
-      pubann_resource[post_path].post({:annotations => annotations}.to_json) do |response, request, result|
-        case response.code
-          when 200 .. 299 then puts 'post succeeded'
-          else puts "post failed: #{response.code}"
-        end
-      end
     end
-
-    last_docid = docid
   end
 end
