@@ -184,15 +184,15 @@ end
 if __FILE__ == $0
   require 'json'
 
-  odir = 'out';
+  odir = './';
   mode = nil;
 
   ## command line option processing
   require 'optparse'
   optparse = OptionParser.new do|opts|
-    opts.banner = "Usage: bionlp-st-to-pubann-json.rb [options]"
+    opts.banner = "Usage: bionlp-st-to-pubann-json.rb [options] a2_file(s)"
 
-    opts.on('-o', '--output directory', 'specifies the output directory.') do |d|
+    opts.on('-o', '--output directory', "specifies the output directory. default: #{odir}") do |d|
       odir = d
     end
 
