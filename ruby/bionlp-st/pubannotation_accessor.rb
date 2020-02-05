@@ -196,6 +196,7 @@ if __FILE__ == $0
     end
   end
 
+  optparse.parse %w[--help] unless ARGV.length > 0
   optparse.parse!
 
   if odir

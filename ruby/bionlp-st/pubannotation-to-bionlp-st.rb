@@ -1,8 +1,4 @@
 #!/usr/bin/env ruby
-#encoding: UTF-8
-Encoding.default_external="UTF-8"
-Encoding.default_internal="UTF-8"
-
 require 'json'
 
 class Annotation
@@ -204,7 +200,7 @@ class Annotation
 
       if (events[id]['location'])
         l = events[id]['location']
-#        a2 += " Location:#{l}"
+        # a2 += " Location:#{l}"
         a2 += " ToLoc:#{l}"
       end
 
@@ -214,7 +210,6 @@ class Annotation
       end
 
       a2 += "\n"
-
     end
 
     if modifications
@@ -246,6 +241,8 @@ if __FILE__ == $0
       exit
     end
   end
+
+  optparse.parse %w[--help] unless ARGV.length > 0
 
   optparse.parse!
   exit unless odir
