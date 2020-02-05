@@ -235,7 +235,7 @@ if __FILE__ == $0
   ## command line option processing
   require 'optparse'
   optparse = OptionParser.new do |opts|
-    opts.banner = "Usage: sen-reid.rb [options]"
+    opts.banner = "Usage: pubannotation-to-bionlp-st.rb [options]"
 
     opts.on('-o', '--output directory', 'specifies the output directory.') do |d|
       odir = d.sub(/\/$/, '')
